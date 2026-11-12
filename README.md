@@ -4,6 +4,10 @@ Eine selbstgebaute Waage unter dem Holzkorb neben dem Ofen. Sie erkennt **automa
 
 Kein Knopfdruck beim Nachlegen, kein Strichliste führen. Einmal kalibrieren, dann läuft es.
 
+![Holzkorb auf der Waage, Sensoren und Konfiguration in Home Assistant](Holzwaage.jpeg)
+
+*Oben: Holzkorb auf der selbstgebauten Waage (zwei Platten mit Wägezelle dazwischen). Unten: Sensoren, Konfiguration und Diagnose in Home Assistant.*
+
 ## ✨ Mehrwert
 
 - **Vollautomatische Erfassung**: Holz aus dem Korb nehmen = Verbrauch, Korb abnehmen und neu befüllen = Nachfüllen.
