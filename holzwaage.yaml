@@ -1,0 +1,411 @@
+substitutions:
+  name: holzwaage
+  friendly_name: Holzwaage
+  dout_pin: GPIO14   # HX711 DT
+  clk_pin: GPIO12    # HX711 SCK
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: -100
+    then:
+      - lambda: |-
+          id(total_consumed).publish_state(id(g_consumed));
+          id(total_added).publish_state(id(g_added));
+          id(total_energy).publish_state(id(g_energy));
+          id(total_rm).publish_state(id(g_rm));
+
+esp32:
+  board: esp32dev
+
+logger:
+
+api:
+  # encryption:
+  #   key: !secret api_key
+
+ota:
+  - platform: esphome
+    # password: !secret ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${name} Fallback"
+    password: !secret ap_password
+
+captive_portal:
+
+# ---------------------------------------------------------------------------
+# Gespeicherter Zustand (bleibt nach Neustart erhalten)
+# ---------------------------------------------------------------------------
+globals:
+  - id: g_tare_raw          # Rohwert bei leerem Korb
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: g_ref_raw           # Rohwert mit Referenzgewicht
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: g_calibrated
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+  - id: g_last_stable       # letztes bestaetigtes Holzgewicht [kg]
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: g_consumed          # Summe verbrannt [kg]
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: g_energy            # Summe Brennwert verbrannt [kWh]
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: g_rm                # Summe verbrannt [Raummeter]
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  - id: g_added             # Summe nachgefuellt [kg]
+    type: float
+    restore_value: yes
+    initial_value: '0'
+  # Laufzeit-Zustand (nicht gespeichert)
+  # 0 = Ruhig, 1 = Nachlegen aktiv, 2 = Korb abgenommen, 3 = Kalibrierung: Gewicht entfernen
+  - id: g_mode
+    type: int
+    initial_value: '0'
+  - id: g_event_start       # Gewicht vor Beginn des Nachlegens
+    type: float
+    initial_value: '0'
+  - id: g_event_factor      # Heizwert [kWh/kg], zu Beginn des Nachlegens festgehalten
+    type: float
+    initial_value: '4.0'
+  - id: g_event_density     # Gewicht [kg/Rm], zu Beginn des Nachlegens festgehalten
+    type: float
+    initial_value: '420'
+  - id: g_track_ref
+    type: float
+    initial_value: '0'
+  - id: g_track_since
+    type: uint32_t
+    initial_value: '0'
+
+# ---------------------------------------------------------------------------
+# Waage
+# ---------------------------------------------------------------------------
+sensor:
+  - platform: hx711
+    id: hx_raw
+    name: "Rohwert"
+    entity_category: diagnostic
+    dout_pin: ${dout_pin}
+    clk_pin: ${clk_pin}
+    gain: 128
+    update_interval: 500ms
+    filters:
+      - median:
+          window_size: 5
+          send_every: 1
+      - sliding_window_moving_average:
+          window_size: 6
+          send_every: 1
+
+  # Gewicht relativ zum leeren Korb (negativ = Korb abgenommen)
+  - platform: template
+    id: weight_kg
+    name: "Waagengewicht"
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 1s
+    entity_category: diagnostic
+    lambda: |-
+      if (!id(g_calibrated) || isnan(id(hx_raw).state)) return {};
+      float span = id(g_ref_raw) - id(g_tare_raw);
+      if (fabsf(span) < 1.0f) return {};
+      return (id(hx_raw).state - id(g_tare_raw)) / span * id(ref_weight).state;
+
+  - platform: template
+    id: wood_now
+    name: "Holz im Korb"
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: measurement
+    accuracy_decimals: 2
+
+  - platform: template
+    id: total_consumed
+    name: "Holz verbrannt gesamt"
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: total_increasing
+    accuracy_decimals: 2
+
+  - platform: template
+    id: total_energy
+    name: "Brennwert verbrannt gesamt"
+    unit_of_measurement: kWh
+    device_class: energy
+    state_class: total_increasing
+    accuracy_decimals: 1
+
+  - platform: template
+    id: total_rm
+    name: "Holz verbrannt Raummeter"
+    unit_of_measurement: Rm
+    state_class: total_increasing
+    accuracy_decimals: 3
+    icon: mdi:tree
+
+  - platform: template
+    id: total_added
+    name: "Holz nachgefuellt gesamt"
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: total_increasing
+    accuracy_decimals: 2
+
+  - platform: template
+    id: last_event
+    name: "Letztes Nachlegen"
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: measurement
+    accuracy_decimals: 2
+
+  - platform: template
+    id: last_refill
+    name: "Letzte Befuellung"
+    unit_of_measurement: kg
+    device_class: weight
+    state_class: measurement
+    accuracy_decimals: 2
+
+text_sensor:
+  - platform: template
+    id: state_text
+    name: "Status"
+
+# ---------------------------------------------------------------------------
+# Einstellungen / Kalibrierung in Home Assistant
+# ---------------------------------------------------------------------------
+number:
+  - platform: template
+    id: ref_weight
+    name: "Referenzgewicht"
+    entity_category: config
+    unit_of_measurement: kg
+    min_value: 0.5
+    max_value: 50
+    step: 0.1
+    initial_value: 5
+    optimistic: true
+    restore_value: true
+
+  # Heizwert Brennholz: Buche lufttrocken (ca. 15-20 % Restfeuchte) ca. 4,0 kWh/kg
+  - platform: template
+    id: kwh_per_kg
+    name: "Heizwert Holz"
+    entity_category: config
+    unit_of_measurement: kWh/kg
+    min_value: 2
+    max_value: 5.5
+    step: 0.05
+    initial_value: 4.0
+    optimistic: true
+    restore_value: true
+
+  # Gewicht pro Raummeter (geschichtete Scheite, ca. 33 cm, lufttrocken), Richtwerte:
+  # Buche/Eiche ca. 400-450, Esche ca. 380-420, Birke ca. 330-360, Fichte/Kiefer ca. 290-330
+  - platform: template
+    id: kg_per_rm
+    name: "Gewicht Holz pro Raummeter"
+    entity_category: config
+    unit_of_measurement: kg/Rm
+    min_value: 200
+    max_value: 600
+    step: 5
+    initial_value: 420
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    id: thr_removed
+    name: "Schwelle Korb abgenommen"
+    entity_category: config
+    unit_of_measurement: kg
+    min_value: -5
+    max_value: -0.1
+    step: 0.1
+    initial_value: -0.3
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    id: thr_delta
+    name: "Mindestaenderung"
+    entity_category: config
+    unit_of_measurement: kg
+    min_value: 0.02
+    max_value: 1
+    step: 0.01
+    initial_value: 0.1
+    optimistic: true
+    restore_value: true
+
+  - platform: template
+    id: hold_s
+    name: "Nachlegen Abschlusszeit"
+    entity_category: config
+    unit_of_measurement: s
+    min_value: 10
+    max_value: 900
+    step: 10
+    initial_value: 300
+    optimistic: true
+    restore_value: true
+
+button:
+  - platform: template
+    name: "Kalibrierung 1: Korb leer (Tara)"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(g_tare_raw) = id(hx_raw).state;
+          id(g_calibrated) = false;
+          ESP_LOGI("holz", "Tara Rohwert: %.0f", id(g_tare_raw));
+
+  - platform: template
+    name: "Kalibrierung 2: Referenzgewicht"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(g_ref_raw) = id(hx_raw).state;
+          id(g_calibrated) = true;
+          id(g_last_stable) = 0;
+          id(g_mode) = 3;  // Referenzgewicht wieder entfernen, dann geht es los
+          ESP_LOGI("holz", "Referenz Rohwert: %.0f", id(g_ref_raw));
+
+  - platform: template
+    name: "Zaehler zuruecksetzen"
+    entity_category: config
+    on_press:
+      - lambda: |-
+          id(g_consumed) = 0;
+          id(g_added) = 0;
+          id(total_consumed).publish_state(0);
+          id(g_energy) = 0;
+          id(g_rm) = 0;
+          id(total_energy).publish_state(0);
+          id(total_rm).publish_state(0);
+          id(total_added).publish_state(0);
+
+# ---------------------------------------------------------------------------
+# Logik (Zustandsautomat, 1x pro Sekunde)
+# ---------------------------------------------------------------------------
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(g_calibrated)) {
+            id(state_text).publish_state("Nicht kalibriert");
+            return;
+          }
+          float w = id(weight_kg).state;
+          if (isnan(w)) return;
+
+          const float thr = id(thr_removed).state;
+          const float delta = id(thr_delta).state;
+          const float tol = delta * 0.5f;
+          const uint32_t hold_ms = (uint32_t) id(hold_s).state * 1000UL;
+          const uint32_t now = millis();
+
+          // Dauer, die das Gewicht innerhalb der Toleranz stabil ist
+          auto stable_ms = [&]() -> uint32_t {
+            if (fabsf(w - id(g_track_ref)) > tol) {
+              id(g_track_ref) = w;
+              id(g_track_since) = now;
+            }
+            return now - id(g_track_since);
+          };
+          auto restart_tracking = [&]() {
+            id(g_track_ref) = w;
+            id(g_track_since) = now;
+          };
+          // Aenderung verbuchen: neg = verbrannt, pos = nachgefuellt
+          auto book = [&](float diff, bool refill, float kwh_per_kg, float kg_per_rm) {
+            if (diff < 0) {
+              id(g_consumed) += -diff;
+              id(g_energy) += -diff * kwh_per_kg;
+              id(g_rm) += -diff / kg_per_rm;
+              id(total_consumed).publish_state(id(g_consumed));
+              id(total_energy).publish_state(id(g_energy));
+              id(total_rm).publish_state(id(g_rm));
+              id(last_event).publish_state(-diff);
+              ESP_LOGI("holz", "Nachlegen: %.2f kg verbrannt", -diff);
+            } else if (diff > 0) {
+              id(g_added) += diff;
+              id(total_added).publish_state(id(g_added));
+              if (refill) id(last_refill).publish_state(diff);
+              ESP_LOGI("holz", "Befuellung: %.2f kg", diff);
+            }
+          };
+
+          switch (id(g_mode)) {
+            case 3:  // Nach Kalibrierung: Gewicht entfernen, leeren Korb abwarten
+              id(state_text).publish_state("Referenzgewicht entfernen");
+              if (fabsf(w) < delta && stable_ms() > 10000) {
+                id(g_last_stable) = 0;
+                id(g_mode) = 0;
+              }
+              break;
+
+            case 2:  // Korb abgenommen
+              id(state_text).publish_state("Korb abgenommen");
+              if (w >= thr) {
+                if (stable_ms() > 8000) {  // Korb steht wieder, Wert beruhigt
+                  float diff = w - id(g_last_stable);
+                  if (fabsf(diff) >= delta) book(diff, true, id(kwh_per_kg).state, id(kg_per_rm).state);
+                  id(g_last_stable) = w;
+                  id(g_mode) = 0;
+                }
+              } else {
+                restart_tracking();
+              }
+              break;
+
+            case 1:  // Nachlegen aktiv
+              id(state_text).publish_state("Nachlegen");
+              if (w < thr) {
+                id(g_mode) = 2;  // g_last_stable bleibt der Wert vor dem Nachlegen
+                restart_tracking();
+              } else if (stable_ms() >= hold_ms) {
+                float diff = w - id(g_event_start);
+                book(diff, diff > 0, id(g_event_factor), id(g_event_density));
+                id(g_last_stable) = w;
+                id(g_mode) = 0;
+              }
+              break;
+
+            default:  // 0: Ruhig
+              id(state_text).publish_state("Bereit");
+              if (w < thr) {
+                id(g_mode) = 2;
+                restart_tracking();
+              } else if (fabsf(w - id(g_last_stable)) > delta) {
+                id(g_event_start) = id(g_last_stable);
+                id(g_event_factor) = id(kwh_per_kg).state;
+                id(g_event_density) = id(kg_per_rm).state;
+                id(g_mode) = 1;
+                restart_tracking();
+              }
+              break;
+          }
+
+          id(wood_now).publish_state(id(g_mode) == 2 ? id(g_last_stable) : w);
