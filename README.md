@@ -4,9 +4,9 @@ Eine selbstgebaute Waage unter dem Holzkorb neben dem Ofen. Sie erkennt **automa
 
 Kein Knopfdruck beim Nachlegen, kein Strichliste führen. Einmal kalibrieren, dann läuft es.
 
-![Holzkorb auf der Waage, Sensoren und Konfiguration in Home Assistant](Holzwaage.jpeg)
+![Holzkorb auf der selbstgebauten Waage](Holzwaage_Image.jpeg)
 
-*Oben: Holzkorb auf der selbstgebauten Waage (zwei Platten mit Wägezelle dazwischen). Unten: Sensoren, Konfiguration und Diagnose in Home Assistant.*
+*Der Holzkorb steht auf der selbstgebauten Waage: zwei Platten mit Wägezelle dazwischen. Den Aufbau findest du unter [Benötigte Teile](#-benötigte-teile), die Werte in Home Assistant unter [Entitäten](#-entitäten-in-home-assistant).*
 
 ## ✨ Mehrwert
 
@@ -24,7 +24,7 @@ Kein Knopfdruck beim Nachlegen, kein Strichliste führen. Einmal kalibrieren, da
 | ESP32 Entwicklungsboard | Config nutzt `esp32dev` |
 | Wägezelle (Load Cell) | Je nach Korb und Holzmenge, z. B. 50 kg Balkenzelle |
 | HX711 Verstärkermodul | 24-Bit-ADC für Wägezellen |
-| Mechanik | Zwei Platten (z. B. Holz/Alu) mit Abstandshaltern, die Zelle dazwischen, Korb obendrauf |
+| Mechanik | Zwei Platten (z. B. Holz/Alu) mit Abstandshaltern, die Zelle dazwischen, Korb obendrauf (siehe [Foto oben](#-holzwaage)) |
 | Kabel, Netzteil (5 V USB) | |
 
 ### Verdrahtung
@@ -50,6 +50,8 @@ Die Pins stehen als `substitutions` oben in der Datei und sind leicht änderbar.
 
 ## ⚖️ Kalibrierung
 
+Die Buttons und das Feld *Referenzgewicht* findest du unter *Konfiguration* ([Screenshot](#-entitäten-in-home-assistant)).
+
 1. Leeren Korb auf die Waage stellen und **Kalibrierung 1: Korb leer (Tara)** drücken.
 2. Referenzgewicht in den Korb legen, den Wert in **Referenzgewicht** eintragen und **Kalibrierung 2: Referenzgewicht** drücken.
 3. Gewicht wieder entfernen. Der Status wechselt nach rund 10 s auf **Bereit**.
@@ -67,6 +69,10 @@ Die Kalibrierung bleibt bei normalen OTA- und USB-Updates erhalten. Nur ein komp
 Wird der Korb wieder aufgestellt und ist 8 s ruhig, gilt *neues Gewicht minus letztes Gewicht* als Befüllung.
 
 ## 📊 Entitäten in Home Assistant
+
+![Sensoren, Konfiguration und Diagnose in Home Assistant](Holzwaage_Sensorwerte.jpeg)
+
+*Links die Sensoren, rechts Konfiguration (Einstellungen und Kalibrier-Buttons) und Diagnose.*
 
 **Sensoren**: Holz im Korb, Holz verbrannt gesamt (kg), Brennwert verbrannt gesamt (kWh), Holz verbrannt Raummeter (Rm), Holz nachgefuellt gesamt, Letztes Nachlegen, Letzte Befuellung, Status.
 
